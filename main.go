@@ -1,41 +1,47 @@
 package main
 
 import (
+	"database/sql"
 	"fmt"
+	_ "github.com/denisenkom/go-mssqldb"
+	"log"
 	"main.go/services"
 	"main.go/utils"
 	"sync"
+	"time"
 )
 
-func generateChunksOfFilenames(slice []string, numGorutine int) [][]string {
-	var result [][]string
-	for i := 0; i < numGorutine; i++ {
-		min := (i * len(slice) / numGorutine)
-		max := ((i + 1) * len(slice)) / numGorutine
-		result = append(result, slice[min:max])
-	}
-	return result
-}
-
 func main() {
-	numConcurrent := 2
-
 	var wg sync.WaitGroup
-	//wg.Add(numConcurrent)
+
+	config, err := utils.LoadConfig("./config")
+	if err != nil {
+		log.Fatal("Cannot load config:", err)
+	}
+	start := time.Now()
+
+	connString := utils.GetConnectionString(config)
+	fmt.Println(connString)
+	db, err := sql.Open(config.Db.Driver, connString)
+	if err != nil {
+		fmt.Println("Error opening database:", err)
+		return
+	}
+	defer db.Close()
+
 	totalFiles := utils.GetTotalFiles("./input")
 	fmt.Println("Number of total files:", totalFiles)
 	fileLists, _ := utils.GetFilesList("./input")
-
 	// Create array of chunks
-	chuncks := generateChunksOfFilenames(fileLists, numConcurrent)
+	chuncks := utils.GenerateChunksOfFilenames(fileLists, config.Concurrence)
 	fmt.Println("Chunks to process:", chuncks)
 
 	// Way 1: Create annonymous function that create goroutines
 	for i, chunck := range chuncks {
 		wg.Add(1)
-		go func(goRoutine int, chuncks []string) {
+		go func(goRoutineId int, chuncks []string) {
 			defer wg.Done()
-			services.ProcessFile2(goRoutine, chuncks)
+			services.ProcessFileAndInsertDB(db, goRoutineId, chuncks)
 		}(i, chunck)
 	}
 	// Way 2: Pass the named function that create goroutines
@@ -47,4 +53,6 @@ func main() {
 	*/
 	wg.Wait()
 	fmt.Println("Successfully import data")
+	elapsed := time.Since(start)
+	fmt.Println("Total Time used to process", totalFiles, "=", elapsed)
 }

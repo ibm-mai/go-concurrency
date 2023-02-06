@@ -1,0 +1,9 @@
+db:
+  driver: mssql
+  host: localhost
+  port: 1433
+  username: sa
+  password: Passwor@d
+  database: PRIVDB
+
+concurrence: 5

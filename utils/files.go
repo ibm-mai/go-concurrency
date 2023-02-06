@@ -22,3 +22,13 @@ func GetFilesList(directory string) ([]string, error) {
 	}
 	return filesList, err
 }
+
+func GenerateChunksOfFilenames(slice []string, numGorutine int) [][]string {
+	var result [][]string
+	for i := 0; i < numGorutine; i++ {
+		min := (i * len(slice) / numGorutine)
+		max := ((i + 1) * len(slice)) / numGorutine
+		result = append(result, slice[min:max])
+	}
+	return result
+}
