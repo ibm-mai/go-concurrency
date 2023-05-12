@@ -1,58 +1,63 @@
 package main
 
 import (
-	"database/sql"
-	"fmt"
 	_ "github.com/denisenkom/go-mssqldb"
-	"log"
+	"github.com/jmoiron/sqlx"
+	"github.com/sirupsen/logrus"
 	"main.go/services"
 	"main.go/utils"
+	"os"
 	"sync"
 	"time"
 )
 
 func main() {
+	utils.InitLogRus()
+
 	var wg sync.WaitGroup
 
 	config, err := utils.LoadConfig("./config")
 	if err != nil {
-		log.Fatal("Cannot load config:", err)
+		logrus.Infof("Cannot load config: %s", err)
+	}
+	if err := os.Mkdir(config.GenData.MsisdnDuplicatePath, os.ModePerm); err != nil {
+		logrus.Error("Error creating folder", err)
 	}
 	start := time.Now()
 
+	// InitDB
 	connString := utils.GetConnectionString(config)
-	fmt.Println(connString)
-	db, err := sql.Open(config.Db.Driver, connString)
+	db, err := sqlx.Open(config.Db.Driver, connString)
 	if err != nil {
-		fmt.Println("Error opening database:", err)
+		logrus.Error("Error opening database:", err)
 		return
 	}
 	defer db.Close()
 
-	totalFiles := utils.GetTotalFiles("./input")
-	fmt.Println("Number of total files:", totalFiles)
-	fileLists, _ := utils.GetFilesList("./input")
+	totalFiles := utils.GetTotalFiles(config.GenData.InputPath)
+	logrus.Infof("Number of total files: %d, concurrency: %d", totalFiles, config.GenData.Concurrence)
+	fileLists, _ := utils.GetFilesList(config.GenData.InputPath)
 	// Create array of chunks
-	chuncks := utils.GenerateChunksOfFilenames(fileLists, config.Concurrence)
-	fmt.Println("Chunks to process:", chuncks)
+	chunks := utils.GenerateChunksOfFilenames(fileLists, config.GenData.Concurrence)
+	logrus.Info("Chunks to process: ", chunks)
 
 	// Way 1: Create annonymous function that create goroutines
-	for i, chunck := range chuncks {
+	for i, chunck := range chunks {
 		wg.Add(1)
 		go func(goRoutineId int, chuncks []string) {
 			defer wg.Done()
-			services.ProcessFileAndInsertDB(db, goRoutineId, chuncks)
+			services.ProcessFileAndInsertDB(db, goRoutineId, chuncks, config.GenData.InputPath, config.GenData.CommitSize, config.GenData.MsisdnDuplicatePath)
 		}(i, chunck)
 	}
 	// Way 2: Pass the named function that create goroutines
 	/*
 		for i := 0; i < numConcurrent; i++ {
 			wg.Add(1)
-			go processFile(&wg, i, chuncks[i])
+			go processFile(&wg, i, chunks[i])
 		}
 	*/
 	wg.Wait()
-	fmt.Println("Successfully import data")
+	logrus.Info("Successfully import data")
 	elapsed := time.Since(start)
-	fmt.Println("Total Time used to process", totalFiles, "=", elapsed)
+	logrus.Info("Total Time used to process ", totalFiles, " files = ", elapsed)
 }
